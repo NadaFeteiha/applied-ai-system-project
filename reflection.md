@@ -7,6 +7,39 @@
 - Briefly describe your initial UML design.
 - What classes did you include, and what responsibilities did you assign to each?
 
+so I will need owner that will have account and could be able to have multiple pets, and each pet will have its own set of tasks, and the scheduler will need to consider the owner's available time and preferences when generating a daily plan.
+
+Also should be abele that the pet could have multiple owner so they could share the care tasks and schedule.
+
+there will be a Tracker class that will manage the tasks for each pet and each day because some tasks are daily and some are weekly or monthly, and the Scheduler class will need to consider the frequency of each task when generating the schedule.
+
+the scheduler need to have access to the owner's calendar to avoid scheduling tasks during times when the owner is unavailable and also to consider the holidays or special events that might affect services such as grooming or vet visits.
+
+the tracker will also need to keep track of the completion status daily and able to send reminders to the owner for upcoming tasks or missed tasks.
+
+the initial UML design included the following classes:
+
+class Pet:
+    - Attributes: name, species, age
+    - Methods: get_info(), get_care_requirements(), get_preferences()
+
+class Tracker:
+    - Attributes: tasks (list of Task objects)
+    - Methods: add_task(), edit_task(), remove_task(),get_tasks_for_day(date),mark_task_completed(task, date),send_reminder(task, date),get_upcoming_tasks(date)
+
+class owner:
+    - Attributes: name, available_time,preferences, calendar, pets (list of Pet objects)
+    - Methods: get_info(),get_available_time(), get_preferences(), get_calendar(), add_pet(pet), remove_pet(pet)
+
+class Scheduler:
+    - Attributes: None (or any necessary attributes for scheduling)
+    - Methods: schedule_tasks(owner, pet, tasks),explain_schedule(schedule)
+
+class Task:
+    - Attributes: name, duration, priority, frequency
+    - Methods: get_info(), get_duration(), get_priority(), get_frequency()
+
+
 **b. Design changes**
 
 - Did your design change during implementation?
