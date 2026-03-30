@@ -5,7 +5,7 @@ from datetime import date, datetime, time as dtime, timedelta
 from pathlib import Path
 from pawpal_system import Owner, Pet, Task, Scheduler, TimeSlot
 
-st.set_page_config(page_title="PawPal+", page_icon="🐾", layout="centered")
+st.set_page_config(page_title="PawPal+", page_icon="🐾", layout="wide")
 
 DATA_FILE = Path("pawpal_data.json")
 
@@ -390,7 +390,10 @@ def _render_calendar_html(year: int, month: int, task_map: dict[date, list]) -> 
     first_weekday, num_days = calendar.monthrange(year, month)
     # calendar.monthrange returns 0=Monday ... 6=Sunday
 
-    header = "".join(f"<th>{d}</th>" for d in ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"])
+    header = "".join(
+        f'<th style="padding:8px 4px;color:#667eea;font-size:0.78em;font-weight:700;letter-spacing:0.05em">{d}</th>'
+        for d in ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+    )
 
     cells = ["<td></td>"] * first_weekday  # leading blank cells
     for d in range(1, num_days + 1):
@@ -398,19 +401,29 @@ def _render_calendar_html(year: int, month: int, task_map: dict[date, list]) -> 
         entries = task_map.get(day, [])
         is_today = day == today
 
-        border = "2px solid #4CAF50" if is_today else "1px solid #e0e0e0"
-        bg = "#f0fff0" if is_today else "#fafafa"
+        if is_today:
+            border = "2px solid #34d399"
+            bg = "rgba(52,211,153,0.1)"
+            day_color = "#34d399"
+        elif entries:
+            border = "1px solid rgba(102,126,234,0.3)"
+            bg = "rgba(102,126,234,0.06)"
+            day_color = "#a5b4fc"
+        else:
+            border = "1px solid rgba(255,255,255,0.06)"
+            bg = "rgba(255,255,255,0.02)"
+            day_color = "#4b5563"
 
         task_html = ""
         for pet_name, species, t in entries[:3]:  # show up to 3 per cell
             dot = PRIORITY_COLOR.get(t["priority"], "⚪")
-            task_html += f'<div style="font-size:0.65em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{dot} {t["name"]}</div>'
+            task_html += f'<div style="font-size:0.62em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:#9ca3af;margin-top:2px">{dot} {t["name"]}</div>'
         if len(entries) > 3:
-            task_html += f'<div style="font-size:0.6em;color:#888">+{len(entries)-3} more</div>'
+            task_html += f'<div style="font-size:0.58em;color:#6b7280">+{len(entries)-3} more</div>'
 
         cells.append(
-            f'<td style="border:{border};padding:6px;vertical-align:top;background:{bg};min-width:80px;height:70px">'
-            f'<strong style="font-size:0.85em">{d}</strong>{task_html}</td>'
+            f'<td style="border:{border};padding:6px;vertical-align:top;background:{bg};min-width:80px;height:70px;border-radius:8px">'
+            f'<strong style="font-size:0.85em;color:{day_color}">{d}</strong>{task_html}</td>'
         )
 
     # Pad trailing cells
@@ -423,9 +436,9 @@ def _render_calendar_html(year: int, month: int, task_map: dict[date, list]) -> 
         rows_html += "<tr>" + "".join(cells[i:i+7]) + "</tr>"
 
     return f"""
-    <h4 style="text-align:center;margin-bottom:8px">{month_name}</h4>
-    <table style="width:100%;border-collapse:collapse;text-align:center">
-      <thead><tr style="background:#f0f0f0">{header}</tr></thead>
+    <h4 style="text-align:center;margin-bottom:12px;color:#a5b4fc;font-weight:700;font-size:1.2em;letter-spacing:-0.5px">{month_name}</h4>
+    <table style="width:100%;border-collapse:separate;border-spacing:3px;text-align:center">
+      <thead><tr style="background:rgba(102,126,234,0.15);border-radius:8px">{header}</tr></thead>
       <tbody>{rows_html}</tbody>
     </table>
     """
@@ -437,12 +450,203 @@ def _render_calendar_html(year: int, month: int, task_map: dict[date, list]) -> 
 
 _init()
 
-st.title("🐾 PawPal+")
-st.caption("Manage your pets' care schedule in one place.")
-st.divider()
+# ── Custom CSS & Animations ──────────────────────────────────────────────────
+st.markdown("""
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+
+/* Global */
+html, body, [data-testid="stAppViewContainer"] {
+    font-family: 'Inter', sans-serif;
+}
+[data-testid="stAppViewContainer"] > .main {
+    background: linear-gradient(160deg, #0d1117 0%, #161b27 40%, #1a1f35 100%);
+    min-height: 100vh;
+}
+[data-testid="stHeader"] { background: transparent !important; }
+[data-testid="stSidebar"] { background: #161b27 !important; }
+
+/* Scrollbar */
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-track { background: #1a1f35; }
+::-webkit-scrollbar-thumb { background: #667eea; border-radius: 3px; }
+
+/* Animations */
+@keyframes fadeInUp {
+    from { opacity: 0; transform: translateY(24px); }
+    to   { opacity: 1; transform: translateY(0); }
+}
+@keyframes pulse-glow {
+    0%, 100% { box-shadow: 0 0 20px rgba(102,126,234,0.3); }
+    50%       { box-shadow: 0 0 40px rgba(102,126,234,0.6); }
+}
+@keyframes shimmer {
+    0%   { background-position: -200% center; }
+    100% { background-position:  200% center; }
+}
+.fade-in { animation: fadeInUp 0.5s ease-out; }
+
+/* Hero banner */
+.hero-banner {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 45%, #f64f59 100%);
+    border-radius: 24px;
+    padding: 48px 40px 40px;
+    text-align: center;
+    margin-bottom: 32px;
+    box-shadow: 0 24px 64px rgba(102,126,234,0.35);
+    animation: fadeInUp 0.7s ease-out, pulse-glow 4s ease-in-out infinite;
+}
+.hero-banner h1 {
+    color: white; font-size: 3.2em; margin: 0; font-weight: 800;
+    text-shadow: 0 2px 20px rgba(0,0,0,0.3);
+    letter-spacing: -1px;
+}
+.hero-banner p {
+    color: rgba(255,255,255,0.88); font-size: 1.15em; margin: 10px 0 0;
+    font-weight: 400;
+}
+
+/* Step badges */
+.step-badge {
+    display: inline-flex; align-items: center; gap: 8px;
+    background: linear-gradient(90deg, #667eea, #764ba2);
+    color: white; padding: 8px 20px; border-radius: 50px;
+    font-size: 0.9em; font-weight: 700; margin-bottom: 12px;
+    box-shadow: 0 4px 20px rgba(102,126,234,0.4);
+    animation: fadeInUp 0.4s ease-out;
+}
+
+/* Pet cards */
+.pet-card {
+    background: linear-gradient(135deg, rgba(102,126,234,0.12), rgba(118,75,162,0.08));
+    border: 1px solid rgba(102,126,234,0.25);
+    border-radius: 20px; padding: 24px 16px; text-align: center;
+    backdrop-filter: blur(12px); margin-bottom: 12px;
+    transition: transform 0.25s ease, box-shadow 0.25s ease;
+    animation: fadeInUp 0.45s ease-out;
+    color: #e8eaf6;
+}
+.pet-card:hover {
+    transform: translateY(-6px);
+    box-shadow: 0 16px 48px rgba(102,126,234,0.35);
+    border-color: rgba(102,126,234,0.5);
+}
+.pet-card .emoji  { font-size: 3.2em; margin-bottom: 10px; display: block; }
+.pet-card .name   { font-weight: 700; font-size: 1.15em; color: white; }
+.pet-card .meta   { color: rgba(200,200,230,0.75); font-size: 0.82em; margin-top: 6px; }
+.pet-card .badges { margin-top: 10px; }
+.pet-card .badge  {
+    display: inline-block; background: rgba(102,126,234,0.3);
+    border: 1px solid rgba(102,126,234,0.4); border-radius: 20px;
+    padding: 3px 12px; font-size: 0.78em; color: #a5b4fc; font-weight: 600;
+}
+
+/* Task cards */
+.task-card {
+    border-radius: 14px; padding: 14px 18px; margin-bottom: 10px;
+    display: flex; align-items: center; gap: 14px;
+    animation: fadeInUp 0.35s ease-out;
+    transition: transform 0.18s ease, box-shadow 0.18s ease;
+    cursor: default;
+}
+.task-card:hover { transform: translateX(6px); }
+.task-high   { background: linear-gradient(90deg, rgba(220,53,69,0.18), rgba(220,53,69,0.06));
+               border-left: 4px solid #dc3545; }
+.task-medium { background: linear-gradient(90deg, rgba(251,191,36,0.18), rgba(251,191,36,0.06));
+               border-left: 4px solid #fbbf24; }
+.task-low    { background: linear-gradient(90deg, rgba(52,211,153,0.18), rgba(52,211,153,0.06));
+               border-left: 4px solid #34d399; }
+.task-done   { opacity: 0.45; }
+.task-name   { font-weight: 600; font-size: 0.95em; color: white; flex: 1; }
+.task-name s { color: #9ca3af; }
+.task-meta   { font-size: 0.78em; color: #9ca3af; margin-top: 2px; }
+.task-pill   {
+    background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.12);
+    border-radius: 20px; padding: 2px 10px; font-size: 0.74em;
+    color: #c4c9d4; white-space: nowrap;
+}
+.priority-badge-high   { background: rgba(220,53,69,0.25);  color: #f87171; border-radius: 8px; padding: 2px 8px; font-size: 0.75em; font-weight: 700; }
+.priority-badge-medium { background: rgba(251,191,36,0.25); color: #fbbf24; border-radius: 8px; padding: 2px 8px; font-size: 0.75em; font-weight: 700; }
+.priority-badge-low    { background: rgba(52,211,153,0.25); color: #34d399; border-radius: 8px; padding: 2px 8px; font-size: 0.75em; font-weight: 700; }
+
+/* Schedule cards */
+.sched-card {
+    border-radius: 12px; padding: 12px 16px; margin-bottom: 8px;
+    display: grid; grid-template-columns: 1fr auto auto auto;
+    align-items: center; gap: 12px;
+    animation: fadeInUp 0.3s ease-out;
+    transition: transform 0.15s ease;
+}
+.sched-card:hover { transform: translateX(4px); }
+.sched-high   { background: rgba(220,53,69,0.12);  border-left: 3px solid #dc3545; }
+.sched-medium { background: rgba(251,191,36,0.12); border-left: 3px solid #fbbf24; }
+.sched-low    { background: rgba(52,211,153,0.12); border-left: 3px solid #34d399; }
+.sched-done   { opacity: 0.4; }
+.sched-name   { font-weight: 600; color: white; font-size: 0.92em; }
+.sched-time   { color: #a5b4fc; font-size: 0.82em; font-weight: 500; white-space: nowrap; }
+.sched-dur    { color: #9ca3af; font-size: 0.78em; white-space: nowrap; }
+
+/* Day subheader */
+.day-header {
+    background: linear-gradient(90deg, rgba(102,126,234,0.2), transparent);
+    border-left: 4px solid #667eea; border-radius: 0 10px 10px 0;
+    padding: 10px 16px; margin: 20px 0 12px;
+    animation: fadeInUp 0.3s ease-out;
+}
+.day-header .day-name  { color: #a5b4fc; font-weight: 700; font-size: 1em; }
+.day-header .day-date  { color: #6b7280; font-size: 0.82em; margin-top: 2px; }
+.day-today .day-name   { color: #34d399 !important; }
+
+/* Metric cards */
+[data-testid="metric-container"] {
+    background: linear-gradient(135deg, rgba(102,126,234,0.1), rgba(118,75,162,0.08)) !important;
+    border: 1px solid rgba(102,126,234,0.2) !important;
+    border-radius: 14px !important;
+    padding: 16px !important;
+}
+[data-testid="stMetricValue"] { color: #a5b4fc !important; }
+[data-testid="stMetricLabel"] { color: #6b7280 !important; }
+
+/* Expander */
+[data-testid="stExpander"] {
+    background: rgba(255,255,255,0.03) !important;
+    border: 1px solid rgba(102,126,234,0.2) !important;
+    border-radius: 14px !important;
+}
+
+/* Buttons */
+.stButton > button {
+    border-radius: 10px !important;
+    font-weight: 600 !important;
+    transition: transform 0.15s ease, box-shadow 0.15s ease !important;
+}
+.stButton > button:hover {
+    transform: translateY(-2px) !important;
+    box-shadow: 0 8px 24px rgba(102,126,234,0.3) !important;
+}
+
+/* Divider */
+hr { border-color: rgba(102,126,234,0.2) !important; }
+
+/* Dataframe */
+[data-testid="stDataFrame"] {
+    border-radius: 14px !important;
+    overflow: hidden;
+    border: 1px solid rgba(102,126,234,0.2) !important;
+}
+</style>
+""", unsafe_allow_html=True)
+
+# ── Hero Banner ───────────────────────────────────────────────────────────────
+st.markdown("""
+<div class="hero-banner">
+  <h1>🐾 PawPal+</h1>
+  <p>Your intelligent pet care scheduling companion — keep every paw on schedule.</p>
+</div>
+""", unsafe_allow_html=True)
 
 # ── 1. Owner ────────────────────────────────────────────────────────────────
-st.header("👤 Step 1 — Owner")
+st.markdown('<div class="step-badge">👤 Step 1 — Owner</div>', unsafe_allow_html=True)
 
 with st.expander("➕ Add a new owner", expanded=not owner_names()):
     col1, col2 = st.columns([3, 1])
@@ -477,7 +681,7 @@ col_b.metric("Pets registered", pet_count)
 
 # ── 2. Weekly Availability ───────────────────────────────────────────────────
 st.divider()
-st.header("📅 Step 2 — Weekly Availability")
+st.markdown('<div class="step-badge">📅 Step 2 — Weekly Availability</div>', unsafe_allow_html=True)
 st.write(
     f"Set **{selected_owner}'s** recurring weekly schedule. "
     "Tasks will only be assigned on available days, starting from the listed time."
@@ -485,94 +689,309 @@ st.write(
 
 weekly_stored = owner_data.get("weekly_availability", {})
 new_weekly: dict = {}
-availability_changed = False
 
-for day in DAYS_OF_WEEK:
-    day_cfg = weekly_stored.get(day, {"available": True, "all_day": True})
-    is_avail = day_cfg.get("available", True)
-    is_all_day = day_cfg.get("all_day", True)
-    stored_start = _parse_time(day_cfg.get("start", "06:00"))
-    stored_end = _parse_time(day_cfg.get("end", "22:00"))
-    stored_has_busy = day_cfg.get("has_busy_block", False)
-    stored_busy_start = _parse_time(day_cfg.get("busy_start", "08:00"))
-    stored_busy_end = _parse_time(day_cfg.get("busy_end", "17:00"))
+SCHEDULE_MODES = ["🌅 All Day", "🕐 Custom Hours", "💼 Work Schedule", "🚫 Off"]
 
-    c1, c2, c3, c4 = st.columns([2, 1.5, 1.5, 1.5])
-    with c1:
-        avail = st.checkbox(day, value=is_avail, key=f"avail_{day}_{selected_owner}")
-    if avail:
-        with c2:
-            all_day = st.checkbox("All day", value=is_all_day, key=f"allday_{day}_{selected_owner}")
-        if all_day:
-            start_str, end_str = "00:00", "23:59"
-            has_busy = False
-            busy_start_str, busy_end_str = "08:00", "17:00"
-            with c3:
-                st.markdown("<small style='color:gray'>00:00 → 23:59</small>", unsafe_allow_html=True)
-        else:
-            with c3:
-                start = st.time_input("Day starts", value=stored_start, key=f"start_{day}_{selected_owner}", label_visibility="collapsed")
-            with c4:
-                end = st.time_input("Day ends", value=stored_end, key=f"end_{day}_{selected_owner}", label_visibility="collapsed")
-            start_str = start.strftime("%H:%M")
-            end_str = end.strftime("%H:%M")
+def _day_mode_from_cfg(cfg: dict) -> str:
+    if not cfg.get("available", True):
+        return "🚫 Off"
+    if cfg.get("all_day", True):
+        return "🌅 All Day"
+    if cfg.get("has_busy_block", False):
+        return "💼 Work Schedule"
+    return "🕐 Custom Hours"
 
-            # Busy block (e.g. at work)
-            has_busy = st.checkbox(
-                f"Busy window on {day} (e.g. at work)",
-                value=stored_has_busy,
-                key=f"hasbusy_{day}_{selected_owner}",
-            )
-            if has_busy:
-                bc1, bc2 = st.columns(2)
-                with bc1:
-                    busy_start = st.time_input(
-                        "Busy from", value=stored_busy_start,
-                        key=f"busystart_{day}_{selected_owner}",
-                    )
-                with bc2:
-                    busy_end = st.time_input(
-                        "Busy until", value=stored_busy_end,
-                        key=f"busyend_{day}_{selected_owner}",
-                    )
-                busy_start_str = busy_start.strftime("%H:%M")
-                busy_end_str = busy_end.strftime("%H:%M")
-                st.caption(
-                    f"  {day}: available {start_str}–{busy_start_str} "
-                    f"and {busy_end_str}–{end_str}"
-                )
+MODE_COLORS = {
+    "🌅 All Day":       ("#34d399", "rgba(52,211,153,0.12)"),
+    "🕐 Custom Hours":  ("#a5b4fc", "rgba(102,126,234,0.12)"),
+    "💼 Work Schedule": ("#fbbf24", "rgba(251,191,36,0.12)"),
+    "🚫 Off":           ("#6b7280", "rgba(107,114,128,0.08)"),
+}
+
+# ── Quick Templates ──────────────────────────────────────────────────────────
+st.markdown(
+    '<div style="color:#a5b4fc;font-weight:700;font-size:0.8em;letter-spacing:0.08em;'
+    'margin-bottom:10px">⚡ QUICK TEMPLATES</div>',
+    unsafe_allow_html=True,
+)
+TEMPLATES = {
+    "🏢 Work Week": {
+        d: ({"available": True, "all_day": False, "start": "07:00", "end": "22:00",
+              "has_busy_block": True, "busy_start": "09:00", "busy_end": "17:00"}
+            if d not in ("Saturday", "Sunday") else {"available": False})
+        for d in DAYS_OF_WEEK
+    },
+    "🌈 Every Day": {
+        d: {"available": True, "all_day": True, "start": "00:00", "end": "23:59",
+            "has_busy_block": False, "busy_start": "08:00", "busy_end": "17:00"}
+        for d in DAYS_OF_WEEK
+    },
+    "🏖️ Weekends Only": {
+        d: ({"available": True, "all_day": True, "start": "00:00", "end": "23:59",
+              "has_busy_block": False, "busy_start": "08:00", "busy_end": "17:00"}
+            if d in ("Saturday", "Sunday") else {"available": False})
+        for d in DAYS_OF_WEEK
+    },
+    "🌙 Evenings Only": {
+        d: {"available": True, "all_day": False, "start": "17:00", "end": "22:00",
+            "has_busy_block": False, "busy_start": "09:00", "busy_end": "17:00"}
+        for d in DAYS_OF_WEEK
+    },
+}
+t1, t2, t3, t4 = st.columns(4)
+for col, (tname, tdata) in zip([t1, t2, t3, t4], TEMPLATES.items()):
+    with col:
+        if st.button(tname, use_container_width=True, key=f"tpl_{tname}_{selected_owner}"):
+            owner_data["weekly_availability"] = tdata
+            _save()
+            st.rerun()
+
+st.markdown('<div style="height:4px"></div>', unsafe_allow_html=True)
+
+# ── Bulk Apply ───────────────────────────────────────────────────────────────
+with st.expander("📋 Apply same schedule to multiple days at once", expanded=False):
+    st.markdown(
+        '<div style="color:#9ca3af;font-size:0.82em;margin-bottom:12px">'
+        'Select any days that share the same schedule, set the type below, and hit Apply.</div>',
+        unsafe_allow_html=True,
+    )
+    ba1, ba2 = st.columns([3, 2])
+    with ba1:
+        bulk_days = st.multiselect(
+            "Days to update", DAYS_OF_WEEK,
+            placeholder="Pick days…", key=f"bulk_days_{selected_owner}",
+        )
+    with ba2:
+        bulk_mode = st.selectbox(
+            "Schedule type", SCHEDULE_MODES, key=f"bulk_mode_{selected_owner}",
+        )
+
+    bulk_start_str, bulk_end_str = "07:00", "22:00"
+    bulk_has_busy, bulk_busy_start_str, bulk_busy_end_str = False, "09:00", "17:00"
+
+    if bulk_mode == "🕐 Custom Hours":
+        bh1, bh2 = st.columns(2)
+        with bh1:
+            bval = st.time_input("Available from", value=_parse_time("07:00"),
+                                 key=f"bulk_start_{selected_owner}")
+            bulk_start_str = bval.strftime("%H:%M")
+        with bh2:
+            bval2 = st.time_input("Available until", value=_parse_time("22:00"),
+                                  key=f"bulk_end_{selected_owner}")
+            bulk_end_str = bval2.strftime("%H:%M")
+
+    elif bulk_mode == "💼 Work Schedule":
+        bh1, bh2 = st.columns(2)
+        with bh1:
+            bval = st.time_input("Day starts", value=_parse_time("07:00"),
+                                 key=f"bulk_dstart_{selected_owner}")
+            bulk_start_str = bval.strftime("%H:%M")
+        with bh2:
+            bval2 = st.time_input("Day ends", value=_parse_time("22:00"),
+                                  key=f"bulk_dend_{selected_owner}")
+            bulk_end_str = bval2.strftime("%H:%M")
+        bh3, bh4 = st.columns(2)
+        bulk_has_busy = True
+        with bh3:
+            bval3 = st.time_input("Work hours from", value=_parse_time("09:00"),
+                                  key=f"bulk_bstart_{selected_owner}")
+            bulk_busy_start_str = bval3.strftime("%H:%M")
+        with bh4:
+            bval4 = st.time_input("Work hours until", value=_parse_time("17:00"),
+                                  key=f"bulk_bend_{selected_owner}")
+            bulk_busy_end_str = bval4.strftime("%H:%M")
+
+    if st.button("✅ Apply to selected days", use_container_width=True,
+                 disabled=not bulk_days, key=f"bulk_apply_{selected_owner}"):
+        for bd in bulk_days:
+            if bulk_mode == "🌅 All Day":
+                owner_data["weekly_availability"][bd] = {
+                    "available": True, "all_day": True, "start": "00:00", "end": "23:59",
+                    "has_busy_block": False, "busy_start": "08:00", "busy_end": "17:00",
+                }
+            elif bulk_mode == "🚫 Off":
+                owner_data["weekly_availability"][bd] = {"available": False}
             else:
-                busy_start_str, busy_end_str = "08:00", "17:00"
-                st.caption(f"  {day}: {start_str} → {end_str}")
+                owner_data["weekly_availability"][bd] = {
+                    "available": True, "all_day": False,
+                    "start": bulk_start_str, "end": bulk_end_str,
+                    "has_busy_block": bulk_has_busy,
+                    "busy_start": bulk_busy_start_str, "busy_end": bulk_busy_end_str,
+                }
+        _save()
+        st.success(f"Schedule applied to: {', '.join(bulk_days)}")
+        st.rerun()
 
-        new_weekly[day] = {
-            "available": True, "all_day": all_day,
-            "start": start_str, "end": end_str,
-            "has_busy_block": has_busy,
-            "busy_start": busy_start_str, "busy_end": busy_end_str,
-        }
-    else:
+# ── Day Cards: Weekdays ───────────────────────────────────────────────────────
+st.markdown(
+    '<div style="background:linear-gradient(90deg,rgba(102,126,234,0.18),transparent);'
+    'border-left:3px solid #667eea;border-radius:0 10px 10px 0;'
+    'padding:9px 16px;margin:18px 0 12px">'
+    '<span style="color:#a5b4fc;font-weight:700;font-size:0.82em;letter-spacing:0.07em">'
+    '📅 WEEKDAYS — Mon to Fri</span></div>',
+    unsafe_allow_html=True,
+)
+day_modes: dict[str, str] = {}
+wd_cols = st.columns(5)
+for i, day in enumerate(DAYS_OF_WEEK[:5]):
+    day_cfg = weekly_stored.get(day, {"available": True, "all_day": True})
+    stored_mode = _day_mode_from_cfg(day_cfg)
+    with wd_cols[i]:
+        mode = st.selectbox(
+            day, SCHEDULE_MODES,
+            index=SCHEDULE_MODES.index(stored_mode),
+            key=f"mode_{day}_{selected_owner}",
+        )
+        day_modes[day] = mode
+        m_accent, m_bg = MODE_COLORS[mode]
+        is_on = mode != "🚫 Off"
+        st.markdown(
+            f'<div style="background:{m_bg};border:1px solid {m_accent}55;border-radius:8px;'
+            f'padding:5px 8px;text-align:center;font-size:0.7em;color:{m_accent};'
+            f'font-weight:700;margin-top:4px">{"🟢 Active" if is_on else "🔴 Off"}</div>',
+            unsafe_allow_html=True,
+        )
+
+# ── Day Cards: Weekend ────────────────────────────────────────────────────────
+st.markdown(
+    '<div style="background:linear-gradient(90deg,rgba(251,191,36,0.18),transparent);'
+    'border-left:3px solid #fbbf24;border-radius:0 10px 10px 0;'
+    'padding:9px 16px;margin:18px 0 12px">'
+    '<span style="color:#fbbf24;font-weight:700;font-size:0.82em;letter-spacing:0.07em">'
+    '🏖️ WEEKEND — Sat & Sun</span></div>',
+    unsafe_allow_html=True,
+)
+we1, we2, we_spacer = st.columns([2, 2, 6])
+for col, day in zip([we1, we2], DAYS_OF_WEEK[5:]):
+    day_cfg = weekly_stored.get(day, {"available": True, "all_day": True})
+    stored_mode = _day_mode_from_cfg(day_cfg)
+    with col:
+        mode = st.selectbox(
+            day, SCHEDULE_MODES,
+            index=SCHEDULE_MODES.index(stored_mode),
+            key=f"mode_{day}_{selected_owner}",
+        )
+        day_modes[day] = mode
+        m_accent, m_bg = MODE_COLORS[mode]
+        is_on = mode != "🚫 Off"
+        st.markdown(
+            f'<div style="background:{m_bg};border:1px solid {m_accent}55;border-radius:8px;'
+            f'padding:5px 8px;text-align:center;font-size:0.7em;color:{m_accent};'
+            f'font-weight:700;margin-top:4px">{"🟢 Active" if is_on else "🔴 Off"}</div>',
+            unsafe_allow_html=True,
+        )
+
+# ── Time Configuration (only for days that need it) ──────────────────────────
+needs_config = [d for d in DAYS_OF_WEEK if day_modes.get(d) in ("🕐 Custom Hours", "💼 Work Schedule")]
+if needs_config:
+    st.markdown(
+        '<div style="color:#9ca3af;font-size:0.8em;font-weight:700;margin:18px 0 10px;'
+        'letter-spacing:0.07em">⚙️ TIME CONFIGURATION</div>',
+        unsafe_allow_html=True,
+    )
+    for day in needs_config:
+        mode = day_modes[day]
+        day_cfg = weekly_stored.get(day, {})
+        stored_start      = _parse_time(day_cfg.get("start",      "07:00"))
+        stored_end        = _parse_time(day_cfg.get("end",        "22:00"))
+        stored_busy_start = _parse_time(day_cfg.get("busy_start", "09:00"))
+        stored_busy_end   = _parse_time(day_cfg.get("busy_end",   "17:00"))
+        m_accent, _ = MODE_COLORS[mode]
+
+        with st.expander(f"{mode}  ·  {day}", expanded=True):
+            if mode == "🕐 Custom Hours":
+                dh1, dh2, dh3 = st.columns([2, 2, 6])
+                with dh1:
+                    start = st.time_input("From", value=stored_start,
+                                          key=f"start_{day}_{selected_owner}")
+                with dh2:
+                    end = st.time_input("Until", value=stored_end,
+                                        key=f"end_{day}_{selected_owner}")
+                st.caption(f"{day}: {start.strftime('%H:%M')} → {end.strftime('%H:%M')}")
+
+            elif mode == "💼 Work Schedule":
+                st.markdown(
+                    '<div style="color:#9ca3af;font-size:0.78em;margin-bottom:8px">'
+                    'Set your day window and your busy (work) hours. '
+                    'Pet tasks will be scheduled in the free slots around work.</div>',
+                    unsafe_allow_html=True,
+                )
+                dh1, dh2 = st.columns(2)
+                with dh1:
+                    start = st.time_input("Day starts", value=stored_start,
+                                          key=f"start_{day}_{selected_owner}")
+                with dh2:
+                    end = st.time_input("Day ends", value=stored_end,
+                                        key=f"end_{day}_{selected_owner}")
+                st.markdown(
+                    '<div style="color:#fbbf24;font-size:0.78em;font-weight:600;margin:8px 0 4px">'
+                    '💼 Busy / Work Window</div>',
+                    unsafe_allow_html=True,
+                )
+                dh3, dh4 = st.columns(2)
+                with dh3:
+                    busy_start = st.time_input("Work from", value=stored_busy_start,
+                                               key=f"busystart_{day}_{selected_owner}")
+                with dh4:
+                    busy_end = st.time_input("Work until", value=stored_busy_end,
+                                             key=f"busyend_{day}_{selected_owner}")
+                bs = start.strftime("%H:%M"); be = end.strftime("%H:%M")
+                bbs = busy_start.strftime("%H:%M"); bbe = busy_end.strftime("%H:%M")
+                st.caption(f"{day}: free {bs}–{bbs}  +  {bbe}–{be}  |  busy {bbs}–{bbe}")
+
+# ── Build new_weekly from widget state ────────────────────────────────────────
+for day in DAYS_OF_WEEK:
+    mode = day_modes.get(day, "🌅 All Day")
+    if mode == "🚫 Off":
         new_weekly[day] = {"available": False}
-        has_busy = False
-        with c2:
-            st.markdown("<small style='color:#aaa'>— unavailable —</small>", unsafe_allow_html=True)
+    elif mode == "🌅 All Day":
+        new_weekly[day] = {
+            "available": True, "all_day": True,
+            "start": "00:00", "end": "23:59",
+            "has_busy_block": False, "busy_start": "08:00", "busy_end": "17:00",
+        }
+    elif mode == "🕐 Custom Hours":
+        s = st.session_state.get(f"start_{day}_{selected_owner}",    _parse_time("07:00"))
+        e = st.session_state.get(f"end_{day}_{selected_owner}",      _parse_time("22:00"))
+        new_weekly[day] = {
+            "available": True, "all_day": False,
+            "start": s.strftime("%H:%M"), "end": e.strftime("%H:%M"),
+            "has_busy_block": False, "busy_start": "09:00", "busy_end": "17:00",
+        }
+    elif mode == "💼 Work Schedule":
+        s  = st.session_state.get(f"start_{day}_{selected_owner}",     _parse_time("07:00"))
+        e  = st.session_state.get(f"end_{day}_{selected_owner}",       _parse_time("22:00"))
+        bs = st.session_state.get(f"busystart_{day}_{selected_owner}", _parse_time("09:00"))
+        be = st.session_state.get(f"busyend_{day}_{selected_owner}",   _parse_time("17:00"))
+        new_weekly[day] = {
+            "available": True, "all_day": False,
+            "start": s.strftime("%H:%M"), "end": e.strftime("%H:%M"),
+            "has_busy_block": True,
+            "busy_start": bs.strftime("%H:%M"), "busy_end": be.strftime("%H:%M"),
+        }
 
-    if new_weekly[day] != weekly_stored.get(day):
-        availability_changed = True
-
-if availability_changed:
+if new_weekly != weekly_stored:
     owner_data["weekly_availability"] = new_weekly
     _save()
 
-avail_days = [d for d in DAYS_OF_WEEK if new_weekly.get(d, {}).get("available", True)]
-if avail_days:
-    st.success(f"Available: {', '.join(avail_days)}")
-else:
+# ── Availability Summary ──────────────────────────────────────────────────────
+avail_days   = [d for d in DAYS_OF_WEEK if new_weekly.get(d, {}).get("available", True)]
+off_days     = [d for d in DAYS_OF_WEEK if not new_weekly.get(d, {}).get("available", True)]
+workday_days = [d for d in avail_days if new_weekly.get(d, {}).get("has_busy_block")]
+
+if not avail_days:
     st.warning("No available days set — the schedule will be empty.")
+else:
+    sm1, sm2, sm3 = st.columns(3)
+    sm1.metric("Active days", len(avail_days))
+    sm2.metric("Days off", len(off_days))
+    sm3.metric("Work-schedule days", len(workday_days))
+    st.success(f"Available: {', '.join(avail_days)}"
+               + (f"  |  Off: {', '.join(off_days)}" if off_days else ""))
 
 # ── 3. Pets ──────────────────────────────────────────────────────────────────
 st.divider()
-st.header(f"🐾 Step 3 — Pets for {selected_owner}")
+st.markdown(f'<div class="step-badge">🐾 Step 3 — Pets for {selected_owner}</div>', unsafe_allow_html=True)
 
 with st.expander("➕ Add a new pet", expanded=pet_count == 0):
     with st.form("add_pet_form", clear_on_submit=True):
@@ -606,18 +1025,20 @@ if not pets:
     st.info("No pets yet — add one above.")
     st.stop()
 
-cols = st.columns(min(len(pets), 3))
+cols = st.columns(min(len(pets), 4))
 for i, p in enumerate(pets):
     emoji = SPECIES_EMOJI.get(p["species"], "🐾")
     task_count = len(p.get("tasks", []))
-    with cols[i % 3]:
+    with cols[i % 4]:
         st.markdown(
             f"""
-            <div style="border:1px solid #ddd;border-radius:10px;padding:12px;margin-bottom:8px;text-align:center">
-                <div style="font-size:2em">{emoji}</div>
-                <strong>{p['name']}</strong><br/>
-                <small>{p['species'].capitalize()}, {p['age']} yr{'s' if p['age'] != 1 else ''}</small><br/>
-                <small>🗒 {task_count} task{'s' if task_count != 1 else ''}</small>
+            <div class="pet-card">
+                <span class="emoji">{emoji}</span>
+                <div class="name">{p['name']}</div>
+                <div class="meta">{p['species'].capitalize()} · {p['age']} yr{'s' if p['age'] != 1 else ''}</div>
+                <div class="badges">
+                  <span class="badge">🗒 {task_count} task{'s' if task_count != 1 else ''}</span>
+                </div>
             </div>
             """,
             unsafe_allow_html=True,
@@ -625,7 +1046,7 @@ for i, p in enumerate(pets):
 
 # ── 4. Tasks ──────────────────────────────────────────────────────────────────
 st.divider()
-st.header("📋 Step 4 — Tasks")
+st.markdown('<div class="step-badge">📋 Step 4 — Tasks</div>', unsafe_allow_html=True)
 
 pet_names_list = [p["name"] for p in pets]
 selected_pet_name = st.selectbox("Select pet", pet_names_list)
@@ -722,28 +1143,74 @@ if all_tasks:
         visible.sort(key=lambda x: PRIORITY_ORDER.get(x[2]["priority"], 3))
 
     if not visible:
-        st.info("No tasks match the current filters.")
-    for pet_name, species, t in visible:
-        emoji = SPECIES_EMOJI.get(species, "🐾")
-        dot = PRIORITY_COLOR.get(t["priority"], "⚪")
-        freq_label = t["frequency"]
-        if t["frequency"] == "daily" and t.get("times_per_day", 1) > 1:
-            freq_label = f"daily × {t['times_per_day']}/day"
-        elif t["frequency"] == "weekly" and t.get("times_per_week", 1) > 1:
-            freq_label = f"weekly × {t['times_per_week']}/week"
-        is_done = _is_complete(selected_owner, pet_name, t["name"], today_str)
-
-        name_fmt = f"~~{t['name']}~~" if is_done else f"**{t['name']}**"
-        st.markdown(
-            f"{dot} {emoji} {pet_name} — {name_fmt} · {t['duration']} min · "
-            f"`{freq_label}`"
+        st.warning("No tasks match the current filters.")
+    else:
+        done_count = sum(
+            1 for pn, sp, t in visible
+            if _is_complete(selected_owner, pn, t["name"], today_str)
         )
+        total_count = len(visible)
+        if done_count == total_count:
+            st.success(f"All {total_count} tasks completed today!")
+        elif done_count > 0:
+            st.info(f"{done_count} of {total_count} tasks completed today.")
+
+        # Styled priority cards
+        PRIORITY_CARD_CLASS = {"high": "task-high", "medium": "task-medium", "low": "task-low"}
+        PRIORITY_BADGE_CLASS = {"high": "priority-badge-high", "medium": "priority-badge-medium", "low": "priority-badge-low"}
+        PRIORITY_LABEL = {"high": "🔴 High", "medium": "🟡 Medium", "low": "🟢 Low"}
+
+        for pet_name, species, t in visible:
+            emoji = SPECIES_EMOJI.get(species, "🐾")
+            freq_label = t["frequency"]
+            if t["frequency"] == "daily" and t.get("times_per_day", 1) > 1:
+                freq_label = f"daily × {t['times_per_day']}/day"
+            elif t["frequency"] == "weekly" and t.get("times_per_week", 1) > 1:
+                freq_label = f"weekly × {t['times_per_week']}/week"
+            is_done = _is_complete(selected_owner, pet_name, t["name"], today_str)
+            card_cls = PRIORITY_CARD_CLASS.get(t["priority"], "task-low")
+            done_cls = " task-done" if is_done else ""
+            badge_cls = PRIORITY_BADGE_CLASS.get(t["priority"], "priority-badge-low")
+            priority_badge = PRIORITY_LABEL.get(t["priority"], t["priority"])
+            name_html = f"<s>{t['name']}</s>" if is_done else t["name"]
+            st.markdown(
+                f"""<div class="task-card {card_cls}{done_cls}">
+                  <span style="font-size:1.6em">{emoji}</span>
+                  <div style="flex:1">
+                    <div class="task-name">{name_html}</div>
+                    <div class="task-meta">{pet_name} · ⏱ {t['duration']} min</div>
+                  </div>
+                  <span class="task-pill">{freq_label}</span>
+                  <span class="{badge_cls}">{priority_badge}</span>
+                  {'<span style="color:#34d399;font-size:1.2em" title="Done today">✓</span>' if is_done else ''}
+                </div>""",
+                unsafe_allow_html=True,
+            )
+
+        # Summary table via st.dataframe
+        st.markdown("**Summary table**")
+        table_data = [
+            {
+                "Pet": f"{SPECIES_EMOJI.get(sp, '🐾')} {pn}",
+                "Task": t["name"],
+                "Priority": t["priority"].capitalize(),
+                "Duration (min)": t["duration"],
+                "Frequency": (
+                    f"daily × {t.get('times_per_day',1)}" if t["frequency"] == "daily" and t.get("times_per_day",1) > 1
+                    else f"weekly × {t.get('times_per_week',1)}" if t["frequency"] == "weekly" and t.get("times_per_week",1) > 1
+                    else t["frequency"].capitalize()
+                ),
+                "Done Today": "✅" if _is_complete(selected_owner, pn, t["name"], today_str) else "⬜",
+            }
+            for pn, sp, t in visible
+        ]
+        st.dataframe(table_data, use_container_width=True, hide_index=True)
 else:
     st.info("No tasks yet — add one above.")
 
 # ── 5. Schedule ───────────────────────────────────────────────────────────────
 st.divider()
-st.header("📆 Step 5 — Schedule")
+st.markdown('<div class="step-badge">📆 Step 5 — Schedule</div>', unsafe_allow_html=True)
 
 has_tasks = any(t for p in pets for t in p.get("tasks", []))
 if not has_tasks:
@@ -814,7 +1281,14 @@ with tab_daily:
             rows.sort(key=lambda r: PRIORITY_ORDER.get(r["_priority_raw"], 3))
 
         label = "Today" if i == 0 else ("Tomorrow" if i == 1 else day.strftime("%A"))
-        st.subheader(f"{label} — {day.strftime('%B %d, %Y')}")
+        today_cls = " day-today" if i == 0 else ""
+        st.markdown(
+            f'<div class="day-header{today_cls}">'
+            f'<div class="day-name">{"📍 " if i == 0 else ""}{label}</div>'
+            f'<div class="day-date">{day.strftime("%B %d, %Y")}</div>'
+            f'</div>',
+            unsafe_allow_html=True,
+        )
 
         # ── Conflict detection ────────────────────────────────────────────────
         conflicts = _detect_conflicts(rows)
@@ -951,27 +1425,37 @@ with tab_daily:
                         st.divider()
 
         if i == 0:
-            # Today — render interactively so each row gets a Mark done button
+            # Today — progress summary
+            done_today = sum(
+                1 for r in rows
+                if _is_complete(selected_owner, r["_pet_raw"], r["_task_raw"], today_str)
+            )
+            if done_today == len(rows) and len(rows) > 0:
+                st.success(f"All {len(rows)} tasks for today are done! Great job!")
+            elif done_today > 0:
+                st.info(f"Progress: {done_today}/{len(rows)} tasks completed today.")
+
+            SCHED_CARD_CLASS = {"high": "sched-high", "medium": "sched-medium", "low": "sched-low"}
             for r in rows:
                 pet_raw = r["_pet_raw"]
                 task_raw = r["_task_raw"]
                 is_done = _is_complete(selected_owner, pet_raw, task_raw, today_str)
                 occ_label = r["Occurrence"]
-
-                rc1, rc2, rc3, rc4, rc5, rc6 = st.columns([2, 2, 1, 1, 1, 1])
-                with rc1:
-                    name_fmt = f"~~{task_raw}~~" if is_done else f"**{task_raw}**"
-                    st.markdown(f"{r['Pet']} — {name_fmt}")
-                with rc2:
-                    st.markdown(r["Priority"])
-                with rc3:
-                    st.markdown(r["Start"])
-                with rc4:
-                    st.markdown(r["End"])
-                with rc5:
-                    st.markdown(occ_label if occ_label != "—" else r["Duration"])
-                with rc6:
-                    btn_key = f"sched_done_{today_str}_{pet_raw}_{task_raw}_{occ_label}"
+                card_cls = SCHED_CARD_CLASS.get(r["_priority_raw"], "sched-low")
+                done_cls = " sched-done" if is_done else ""
+                dur_or_occ = occ_label if occ_label != "—" else r["Duration"]
+                name_html = f"<s>{task_raw}</s>" if is_done else task_raw
+                st.markdown(
+                    f'<div class="sched-card {card_cls}{done_cls}">'
+                    f'<div style="flex:1"><div class="sched-name">{r["Pet"]} — {name_html}</div>'
+                    f'<div style="color:#6b7280;font-size:0.78em">{dur_or_occ} · {r["Priority"]}</div></div>'
+                    f'<div class="sched-time">⏱ {r["Start"]} → {r["End"]}</div>'
+                    f'</div>',
+                    unsafe_allow_html=True,
+                )
+                btn_key = f"sched_done_{today_str}_{pet_raw}_{task_raw}_{occ_label}"
+                col_btn, _ = st.columns([1, 5])
+                with col_btn:
                     if st.button(
                         "✓ Done" if is_done else "Mark done",
                         key=btn_key,
@@ -981,8 +1465,20 @@ with tab_daily:
                         _toggle_complete(selected_owner, pet_raw, task_raw, today_str)
                         st.rerun()
         else:
-            display_rows = [{k: v for k, v in r.items() if not k.startswith("_")} for r in rows]
-            st.table(display_rows)
+            # Future days — use st.dataframe for a clean professional look
+            display_rows = [
+                {
+                    "Pet": r["Pet"],
+                    "Task": r["Task"],
+                    "Start": r["Start"],
+                    "End": r["End"],
+                    "Duration": r["Duration"],
+                    "Priority": r["Priority"],
+                    "Occurrence": r["Occurrence"],
+                }
+                for r in rows
+            ]
+            st.dataframe(display_rows, use_container_width=True, hide_index=True)
 
     if not any_day_shown:
         st.info("No tasks match the current filters for the next 7 days.")
@@ -1037,4 +1533,10 @@ with tab_monthly:
             day_name = selected_day.strftime("%A")
             free_blocks = _owner_free_blocks(selected_owner, day_name)
             rows = _assign_times(entries, free_blocks)
-            st.table(rows)
+            if rows:
+                high_count = sum(1 for r in rows if "high" in r.get("Priority", "").lower())
+                if high_count:
+                    st.warning(f"{high_count} high-priority task{'s' if high_count > 1 else ''} scheduled for this day.")
+                else:
+                    st.success(f"{len(rows)} task{'s' if len(rows) > 1 else ''} scheduled — no high-priority conflicts.")
+                st.dataframe(rows, use_container_width=True, hide_index=True)
