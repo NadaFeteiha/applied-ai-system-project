@@ -14,6 +14,19 @@
 4. [Getting Started](#getting-started)
 5. [Testing](#testing)
 6. [Code Coverage](#code-coverage)
+7. [AI Assistant — RAG System](#ai-assistant--rag-system)
+   - [Pipeline Diagram](#pipeline-diagram)
+   - [Pipeline Components](#pipeline-components)
+   - [Knowledge Base](#knowledge-base)
+   - [Chunking Strategy](#chunking-strategy)
+   - [Graceful Degradation](#graceful-degradation)
+   - [Setup](#setting-up-the-ai-assistant)
+8. [Full System Architecture](#full-system-architecture)
+   - [Application Layout](#application-layout)
+   - [Component Architecture](#component-architecture)
+   - [Data Flow — Scheduling](#data-flow--scheduling)
+   - [Data Flow — AI Assistant](#data-flow--ai-assistant)
+   - [Technology Stack](#technology-stack)
 
 ---
 
@@ -489,3 +502,315 @@ Confidence Level: ★★★★☆  (4 / 5)
 **Gap:** The Streamlit UI layer (`app.py`) and AI-assisted explanation features are not covered by automated tests. Adding integration or snapshot tests for the UI would push this to 5 stars.
 
 > Coverage is measured against `pawpal_system.py` only. The Streamlit UI (`app.py`) is excluded from the automated test run.
+
+---
+
+## AI Assistant — RAG System
+
+PawPal+ ships with an embedded AI assistant powered by a **Retrieval-Augmented Generation (RAG)** pipeline. Every response is grounded in a curated knowledge base of pet care guides and vet profiles — no cloud API key, no hallucinations.
+
+---
+
+### Pipeline Diagram
+
+```mermaid
+flowchart LR
+    subgraph INPUT["📥 Input"]
+        Q["🙋 User Question"]
+        CTX["🐾 Owner & Pet Context"]
+    end
+
+    subgraph RAG["🔍 RAG Pipeline  ·  rag/pipeline.py"]
+        direction TB
+        EMB["Embedder\nall-MiniLM-L6-v2\n384-dim vectors"]
+        VEC[("ChromaDB\nVector Store\ncosine similarity")]
+        CHUNKS["Top-5 Chunks\nretrieved by score"]
+        PROMPT["Prompt Builder\n_build_prompt()"]
+        EMB --> VEC --> CHUNKS --> PROMPT
+    end
+
+    subgraph LLM_BOX["🧠 LLM Layer"]
+        OLLAMA["Ollama\nllama3.2\nlocalhost:11434"]
+        FALLBACK["Raw Chunk\nFallback\n(offline mode)"]
+    end
+
+    Q --> EMB
+    CTX --> PROMPT
+    PROMPT --> OLLAMA
+    OLLAMA -- "✅ online" --> ANS["💬 Answer\n+ Source Pills"]
+    OLLAMA -- "❌ offline" --> FALLBACK --> ANS
+```
+
+---
+
+### Pipeline Components
+
+| # | Module | Role |
+|---|---|---|
+| 1 | `rag/embedder.py` | Lazy-loads `all-MiniLM-L6-v2`; converts any text to a 384-dim float vector |
+| 2 | `rag/vector_store.py` | Wraps ChromaDB with `upsert`, `query` (cosine), and `count`; persists index at `chroma_db/` |
+| 3 | `rag/llm.py` | POSTs to Ollama REST API; returns `None` on `ConnectionError` so the pipeline can degrade gracefully |
+| 4 | `rag/pipeline.py` | Orchestrates retrieval → prompt assembly → LLM call → fallback; single public function `ask()` |
+| 5 | `setup_rag.py` | One-time indexer: reads all KB files, chunks them, embeds, and upserts into ChromaDB |
+
+---
+
+### Knowledge Base
+
+```
+knowledge_base/
+├── pet_care/          ← 5 species care guides
+│   ├── dogs.txt
+│   ├── cats.txt
+│   ├── birds.txt
+│   ├── rabbits.txt
+│   └── fish.txt
+└── doctors/           ← 6 veterinarian profiles
+    ├── dr_sarah_chen.txt
+    ├── dr_james_wilson.txt
+    ├── dr_emily_rodriguez.txt
+    ├── dr_michael_patel.txt
+    ├── dr_lisa_thompson.txt
+    └── dr_omar_hassan.txt
+```
+
+| Category | Files | What Is Indexed |
+|---|:---:|---|
+| 🐾 **Pet Care** | 5 | Species-specific nutrition, exercise, grooming, health, and behaviour guides |
+| 🩺 **Vet Doctors** | 6 | Doctor names, specialisations, available days/hours, consultation fees, booking contacts |
+| **Total** | **11** | ~300+ chunks indexed at 200 words each with 30-word overlap |
+
+---
+
+### Chunking Strategy
+
+```
+Raw text file (e.g. dogs.txt)
+        │
+        ▼  chunk_text(chunk_size=200, overlap=30)
+┌─────────────────┐
+│   Chunk 1       │  words  0 – 199
+└────────┬────────┘
+         │ 30-word overlap keeps context intact across boundaries
+┌────────▼────────┐
+│   Chunk 2       │  words 170 – 369
+└────────┬────────┘
+         │
+┌────────▼────────┐
+│   Chunk 3       │  words 340 – 539
+└─────────────────┘
+         ·
+         ·  stored in ChromaDB with metadata:
+            { source, category, file }
+```
+
+---
+
+### Graceful Degradation
+
+```mermaid
+stateDiagram-v2
+    direction LR
+    [*] --> EmbedQuery : User asks a question
+    EmbedQuery --> RetrieveChunks : Cosine search — Top 5
+    RetrieveChunks --> CheckOllama : Is Ollama reachable?
+
+    CheckOllama --> BuildPrompt : ✅ Yes
+    BuildPrompt --> GenerateAnswer : llama3.2
+    GenerateAnswer --> Respond : LLM answer + sources
+
+    CheckOllama --> FallbackChunks : ❌ No (offline)
+    FallbackChunks --> Respond : Raw KB excerpts + warning badge
+
+    Respond --> [*]
+```
+
+The UI always displays a `● Ollama online / offline` status badge in the sidebar so users know which mode is active.
+
+---
+
+### Setting Up the AI Assistant
+
+```bash
+# 1. Install AI dependencies
+pip install sentence-transformers chromadb
+
+# 2. Install and start Ollama  (https://ollama.com)
+ollama pull llama3.2
+
+# 3. Index the knowledge base — run once
+python setup_rag.py
+# Expected output:
+#   dogs.txt          18 chunks
+#   cats.txt          15 chunks
+#   ...
+#   Total chunks: ~300
+#   Done! ChromaDB now contains N indexed chunks.
+
+# 4. Launch the app
+streamlit run app.py
+# → Click "Open Chat →" on the home page to reach the AI assistant
+```
+
+---
+
+## Full System Architecture
+
+### Application Layout
+
+The project is structured as a **Streamlit multi-page app** with three distinct layers:
+
+```
+applied-ai-system-project/
+│
+├── app.py                        ← Navigation entrypoint (st.navigation)
+│
+├── pages/
+│   ├── Home.py                   ← Scheduling dashboard  (~1 500 lines)
+│   └── Pet_Care_Assistant.py     ← AI chat interface     (~350 lines)
+│
+├── pawpal_system.py              ← Domain model & scheduling engine
+│
+├── rag/                          ← RAG pipeline (5 modules)
+│   ├── __init__.py
+│   ├── embedder.py               ← Sentence-Transformers wrapper
+│   ├── llm.py                    ← Ollama REST client
+│   ├── vector_store.py           ← ChromaDB wrapper
+│   └── pipeline.py               ← ask() orchestrator
+│
+├── knowledge_base/               ← 11 plain-text documents
+│   ├── pet_care/   (5 files)
+│   └── doctors/    (6 files)
+│
+├── chroma_db/                    ← Persisted vector index (auto-created)
+├── setup_rag.py                  ← One-time indexer
+├── tests/                        ← 131 pytest tests
+└── pawpal_data.json              ← Runtime JSON store (auto-created)
+```
+
+---
+
+### Component Architecture
+
+```mermaid
+graph TB
+    subgraph NAV_LAYER["🗺️ Navigation  (app.py)"]
+        NAV["st.navigation\nNavigation Hub"]
+    end
+
+    subgraph UI_LAYER["🖥️ UI Pages  (pages/)"]
+        HOME["🏠 Home.py\nScheduling Dashboard"]
+        CHAT["🤖 Pet_Care_Assistant.py\nAI Chat"]
+    end
+
+    subgraph DOMAIN_LAYER["⚙️ Domain Model  (pawpal_system.py)"]
+        OWNER["Owner"]
+        PET["Pet"]
+        TRACKER["Tracker"]
+        TASK["Task"]
+        CAL["Calendar"]
+        SCHED["Scheduler"]
+        OWNER --> PET --> TRACKER --> TASK
+        OWNER --> CAL
+        SCHED --> OWNER
+        SCHED --> PET
+    end
+
+    subgraph RAG_LAYER["🤖 RAG Pipeline  (rag/)"]
+        PIPE["pipeline.py\nOrchestrator"]
+        EMB2["embedder.py\nall-MiniLM-L6-v2"]
+        VEC2["vector_store.py\nChromaDB"]
+        LLM2["llm.py\nOllama llama3.2"]
+        PIPE --> EMB2 --> VEC2
+        PIPE --> LLM2
+    end
+
+    subgraph DATA_LAYER["💾 Data Layer"]
+        JSON_DB["pawpal_data.json\nOwner · Pet · Task store"]
+        CHROMA_DB[("chroma_db/\nVector index")]
+        KB_FILES["knowledge_base/\n11 text documents"]
+    end
+
+    NAV --> HOME
+    NAV --> CHAT
+    HOME <--> DOMAIN_LAYER
+    HOME <--> JSON_DB
+    CHAT --> PIPE
+    VEC2 <--> CHROMA_DB
+    KB_FILES -. "setup_rag.py\n(one-time index)" .-> VEC2
+```
+
+---
+
+### Data Flow — Scheduling
+
+```mermaid
+sequenceDiagram
+    actor User
+    participant UI  as 🏠 Home.py
+    participant DB  as 💾 pawpal_data.json
+    participant ENG as ⚙️ Scheduling Engine
+
+    User ->> UI  : Add owner / pet / task
+    UI   ->> DB  : JSON write (_save)
+
+    User ->> UI  : View 7-day schedule
+    UI   ->> DB  : Load owner data
+    UI   ->> ENG : _tasks_due_on(pets, day)
+    ENG -->> UI  : Filtered & priority-sorted entries
+
+    UI   ->> ENG : _build_slots(entries, free_blocks)
+    ENG -->> UI  : Time-placed slot list
+
+    UI   ->> ENG : _detect_conflicts(slots)
+    ENG -->> UI  : Conflict pairs + severity labels
+
+    UI  -->> User : Rendered schedule\n+ conflict banners & auto-fix buttons
+```
+
+---
+
+### Data Flow — AI Assistant
+
+```mermaid
+sequenceDiagram
+    actor User
+    participant CHAT as 🤖 Pet_Care_Assistant.py
+    participant PIPE as pipeline.py
+    participant EMB  as embedder.py
+    participant VEC  as vector_store.py (ChromaDB)
+    participant LLM  as llm.py (Ollama)
+
+    User ->> CHAT : Ask a question
+    CHAT ->> PIPE : ask(question, user_context)
+
+    PIPE ->> EMB  : embed([question])
+    EMB -->> VEC  : 384-dim query vector
+    VEC -->> PIPE : Top-5 chunks (cosine similarity + score)
+
+    PIPE ->> PIPE : _build_prompt(question, chunks, context)
+
+    alt Ollama online
+        PIPE ->> LLM  : generate(prompt)
+        LLM -->> PIPE : Grounded answer string
+        PIPE -->> CHAT : { answer, sources, llm_used: true }
+    else Ollama offline
+        PIPE -->> CHAT : { answer: raw excerpts, sources, llm_used: false }
+    end
+
+    CHAT -->> User : Answer bubble + source pills\n(🩺 doctor  /  📖 care guide)
+```
+
+---
+
+### Technology Stack
+
+| Layer | Technology | Version | Purpose |
+|---|---|---|---|
+| **UI Framework** | Streamlit | ≥ 1.36 | Multi-page reactive web app with `st.navigation` |
+| **Domain Model** | Pure Python | 3.12 | Owner / Pet / Task / Scheduler / Tracker classes |
+| **Embeddings** | `sentence-transformers` | ≥ 2.7 | `all-MiniLM-L6-v2` — 384-dim semantic vectors |
+| **Vector DB** | ChromaDB | ≥ 0.5 | Cosine-similarity retrieval, persisted on disk |
+| **LLM Runtime** | Ollama `llama3.2` | local | Local inference — no cloud API key required |
+| **Data Store** | JSON | — | Lightweight persistence for app data |
+| **Test Suite** | pytest | ≥ 7.0 | 131 tests · 100 % backend coverage |
