@@ -373,16 +373,41 @@ if not is_index_populated():
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
+def _next_due(frequency: str) -> str:
+    from datetime import date, timedelta
+    today = date.today()
+    if frequency == "daily":
+        return today.strftime("%A, %B %d")
+    if frequency == "weekly":
+        days_until_monday = (7 - today.weekday()) % 7 or 7
+        return (today + timedelta(days=days_until_monday)).strftime("%A, %B %d")
+    if frequency == "monthly":
+        if today.month == 12:
+            first = date(today.year + 1, 1, 1)
+        else:
+            first = date(today.year, today.month + 1, 1)
+        return first.strftime("%A, %B %d")
+    return "unknown"
+
+
 def _user_context(owner_name: str | None) -> str:
     if not owner_name:
         return ""
     o = st.session_state.db["owners"].get(owner_name, {})
     lines = [f"Owner: {owner_name}"]
     for p in o.get("pets", []):
-        tasks = ", ".join(t["name"] for t in p.get("tasks", []))
-        lines.append(
-            f"Pet: {p['name']} ({p['species']}, age {p['age']}). Tasks: {tasks or 'none'}"
-        )
+        lines.append(f"Pet: {p['name']} ({p['species']}, age {p['age']})")
+        for t in p.get("tasks", []):
+            freq = t.get("frequency", "")
+            times = t.get("times_per_day", 1)
+            dur = t.get("duration", "")
+            next_due = _next_due(freq)
+            detail = f"{freq}, next due: {next_due}"
+            if times > 1:
+                detail += f", {times}x/day"
+            if dur:
+                detail += f", {dur} min"
+            lines.append(f"  - Task: {t['name']} ({detail})")
     return "\n".join(lines)
 
 

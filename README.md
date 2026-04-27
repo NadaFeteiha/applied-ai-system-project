@@ -4,6 +4,8 @@
 
 PawPal+ was built for pet owners who struggle to stay consistent with care routines. It combines a structured 7-day scheduling engine with an embedded AI assistant that can answer pet care questions and surface vet availability — all running locally on your machine. The goal was to make AI genuinely useful in a domain-specific context, not just a chatbot bolted on top.
 
+**[Watch the demo on Loom →](https://www.loom.com/share/35a6355b87ad45e98db4f5789fa0803a)**
+
 ---
 
 ## Table of Contents
@@ -267,6 +269,23 @@ Integration tests auto-skip when ChromaDB has not been indexed yet (they print a
 
 Every AI response shows a **retrieval confidence bar** — the mean cosine-similarity of the top-5 retrieved chunks displayed as a percentage with a color-coded fill (green ≥ 70%, yellow 50–69%, red < 50%). The **Retrieval Quality Evaluation** panel in the app runs the full 8-question reference suite on demand and reports aggregate keyword coverage and similarity scores.
 
+### Why scores sit in the 50–60% range
+
+Scores in the yellow zone are expected and do not mean the answer is wrong. Two metrics measure different things:
+
+- **Similarity score** — how geometrically close the query vector is to the retrieved chunk vectors
+- **Keyword coverage** — whether the right content was actually retrieved
+
+A short question (8–12 words) compared against a 200-word chunk will always produce a diluted similarity score, because the chunk contains many words unrelated to the specific question and the two vectors cannot point in exactly the same direction. The evaluation suite confirms this: all 8 reference questions scored 44–57% similarity while achieving 97% keyword coverage — the right content was retrieved every time, just at moderate similarity.
+
+| Factor | Effect on score |
+|---|---|
+| Short query vs. long chunk | Query vector is specific; chunk vector is diffuse — close alignment is impossible |
+| General-purpose embedding model | `all-MiniLM-L6-v2` was not trained on pet care vocabulary |
+| 200-word chunks | More off-topic words per chunk lowers similarity to any single question |
+
+**To push scores into the green zone** the most effective change is reducing chunk size (e.g., 80 words instead of 200) in [rag/ingest.py](rag/ingest.py). Smaller chunks have less off-topic content so similarity typically rises to 70–85%. The trade-off is that very small chunks may split a useful fact across two chunks and hurt keyword coverage.
+
 ### Results summary
 
 All 164 automated tests passed. The 8-question RAG evaluation showed strong keyword coverage (97% average) — the retriever consistently pulled the right content — while semantic similarity averaged 50%, landing in the "yellow" zone, meaning chunks are topically correct but not always a tight match for the phrasing of the question. The weakest result was the fish care query, which missed one of five expected keywords (80% coverage vs 100% for every other question). No query fell below the 50% similarity floor; adding a species-specific document (e.g., a breed guide) raises confidence scores into the green zone, as shown in the custom document example above.
@@ -317,6 +336,8 @@ Start with the simplest design that could possibly work, test it thoroughly, and
 
 The knowledge base is hand-curated and small — 11 documents covering five species and six vets. Any pet not in that set (reptiles, guinea pigs, senior dogs with chronic conditions) will get a generic or irrelevant answer, and the system currently has no way to signal that a question is outside its coverage. The vet profiles are also fictional, so availability and fee data is static and never goes stale, but it also means the booking information cannot be acted on.
 
+A second structural limitation showed up during testing: the original prompt gave the LLM no instruction about which source of truth to trust when they conflicted. When a user asked "which doctor for my rabbit?" while having a dog registered in the system, the AI ignored the registered pet data and recommended a rabbit specialist — confidently and incorrectly. The fix was a single instruction added to the prompt telling the model to treat owner data as ground truth and flag any mismatch. This is a limitation of instruction-following LLMs in general: without explicit priority rules, they resolve ambiguity based on the question wording, not the data.
+
 On the bias side, the retriever uses cosine similarity on short queries, which favors questions phrased similarly to the training documents. A user who asks "my cat keeps throwing up" may get lower-confidence results than one who asks "what causes vomiting in cats," even though the intent is the same. The scoring also weights semantic closeness, not medical correctness — a confident-looking 80% score does not mean the answer is safe to act on without a real vet.
 
 ### Misuse risks and safeguards
@@ -331,13 +352,15 @@ The keyword coverage metric (97% average) looked excellent, but the similarity s
 
 The fish care question was the only one to miss a keyword (80% coverage). Looking at the retrieved chunks, the word "aquarium" was present but "filter" was not — the knowledge base document uses "filtration system" instead. That single synonym mismatch was enough to drop the score, which is a good reminder that keyword matching punishes vocabulary gaps even when the underlying information is there.
 
+Two failures during live testing were more surprising than anything the automated suite caught. First, asking "when is Oreo's appointment?" returned a response asking the user to confirm the date — even though the appointment was in the database. The cause was that `_user_context()` was only passing task names (`"appointment"`) with no details, so the AI had nothing to work from. The fix was to include frequency, duration, and a computed next-due date in the context string. Second, asking "which doctor for my rabbit?" while Oreo was registered as a dog caused the AI to recommend a rabbit specialist — it followed the question wording and completely ignored the registered species. Both failures passed all 164 automated tests, which only validated the scheduling engine and scoring functions. They were only caught through manual use, reinforcing that automated tests and live testing catch different classes of bugs.
+
 ### Collaboration with AI during this project
 
-AI assistance was used throughout — for scaffolding the RAG pipeline, writing the test suite, and drafting documentation.
+AI assistance was used throughout — for scaffolding the RAG pipeline, writing the test suite, fixing bugs, and drafting documentation.
 
-**Helpful instance:** When setting up the vector store, the AI suggested adding a 30-word chunk overlap on top of the 200-word chunk size. The reasoning was that sentences at chunk boundaries would otherwise be split across two chunks and potentially missed by both. That turned out to matter in practice: the vet profile questions, which often straddle an availability line and a fee line, consistently retrieved both pieces of information because the overlap kept boundary content in two chunks.
+**Helpful instance:** When the species mismatch bug appeared (the AI recommending a rabbit doctor for Oreo the dog), the fix suggested was to add a single priority instruction to the prompt: *"If the user's pet data is provided, treat it as ground truth and flag any mismatch with the question."* That one-line prompt change resolved the issue without touching any retrieval logic. It was a good example of the AI identifying that the problem was in the instruction layer, not the data layer — a distinction that would have taken longer to reach independently.
 
-**Flawed instance:** The AI initially proposed testing `keyword_coverage` with the assertion that `"vaccine"` would be found as a substring of `"vaccination"`. The test was written, committed, and only caught when it failed — `"vaccine"` and `"vaccination"` diverge at the seventh character and are not a substring match. The fix was a one-line change, but it was a reminder that AI-generated tests can encode confident-sounding assumptions that are simply wrong and need the same skeptical review as any other generated code.
+**Flawed instance:** The AI initially proposed testing `keyword_coverage` with the assertion that `"vaccine"` would be found as a substring of `"vaccination"`. The test was written and only caught when it failed at runtime — `"vaccine"` and `"vaccination"` diverge at the seventh character and are not a substring match. A second flawed suggestion was that the `_user_context()` function was already passing enough information for the AI to answer appointment questions. In practice it was only passing task names (`"appointment"`) with no frequency, duration, or date — which is why the AI responded by asking the user to confirm when their own appointment was. Both cases showed the same pattern: the AI produced plausible-sounding output that looked correct on inspection but broke on real use.
 
 ---
 
@@ -380,6 +403,37 @@ The **Retrieval Quality Evaluation** panel (expandable, below the metrics row) r
 
 - **Keyword coverage** — fraction of expected topic keywords found in the top-5 chunks
 - **Avg similarity score** — mean cosine similarity across all retrieved chunks
+
+### Testing with custom documents
+
+Two ready-made profile documents are included in the repo — `oreo_profile.txt` (dog) and `oscar_profile.txt` (cat). Upload one or both through the sidebar **Custom Documents** panel, then use the questions below to verify the system is reading from them.
+
+**After uploading `oreo_profile.txt`**
+
+| Question | What it checks |
+|---|---|
+| "When is Oreo's next rabies vaccine due?" | Vaccination record — specific date retrieval |
+| "What food does Oreo eat and how much?" | Feeding plan — quantity and brand |
+| "What should Oreo never eat?" | Toxic foods list specific to Oreo |
+| "What flea prevention does Oreo take?" | Medication retrieval |
+| "Is Oreo spayed or neutered?" | Medical history |
+| "Oreo has a bloated stomach and keeps retching — what should I do?" | Emergency symptoms — the most important test; before uploading the doc the system gives a generic answer, after it should name bloat specifically and direct to Dr. James Wilson |
+
+**After uploading `oscar_profile.txt`**
+
+| Question | What it checks |
+|---|---|
+| "What vaccines does Oscar need?" | Cat-specific vaccination schedule |
+| "Oscar hasn't urinated in 12 hours — is that an emergency?" | Cat-specific emergency (urinary blockage) |
+| "Are lilies dangerous for Oscar?" | Plant toxicity specific to cats |
+| "How much should I feed Oscar?" | Feeding plan — weight and timing |
+| "Does Oscar get along with Oreo?" | Behavioral notes across two pets |
+
+**What good results look like**
+
+- Source pill shows `📎 oreo_profile` or `📎 oscar_profile` — confirming the custom document was used, not the generic dogs/cats guide
+- Retrieval confidence jumps from ~50% (generic guide) to ~75–85% (specific profile) because the chunk content closely matches the question
+- Answers include specific details — vaccine brand names, exact gram amounts, named emergency symptoms — that the built-in knowledge base does not contain
 
 ### Before / after: adding a custom document
 

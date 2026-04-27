@@ -22,8 +22,22 @@
               "frequency": "daily",
               "times_per_day": 1,
               "times_per_week": 1
+            },
+            {
+              "name": "appointment",
+              "duration": 60,
+              "priority": "high",
+              "frequency": "monthly",
+              "times_per_day": 1,
+              "times_per_week": 1
             }
           ]
+        },
+        {
+          "name": "oscar",
+          "species": "cat",
+          "age": 2,
+          "tasks": []
         }
       ],
       "weekly_availability": {
@@ -94,6 +108,9 @@
       "completions": {
         "Oreo::feeding": [
           "2026-03-28"
+        ],
+        "Oreo::walking": [
+          "2026-04-26"
         ]
       }
     }
