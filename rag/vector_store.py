@@ -55,3 +55,53 @@ def query(text: str, n_results: int = 5) -> list[dict]:
 
 def count() -> int:
     return _get_collection().count()
+
+
+def list_sources() -> list[dict]:
+    """
+    Return every unique source with its category, source_type, and chunk count.
+
+    Each entry::
+
+        {
+            "source":      "Dogs",
+            "category":    "pet_care",
+            "source_type": "builtin",   # or "custom"
+            "count":       18,
+        }
+    """
+    col = _get_collection()
+    if col.count() == 0:
+        return []
+    results = col.get(include=["metadatas"])
+    index: dict[str, dict] = {}
+    for meta in results["metadatas"]:
+        src = meta.get("source", "unknown")
+        if src not in index:
+            index[src] = {
+                "source": src,
+                "category": meta.get("category", "unknown"),
+                "source_type": meta.get("source_type", "builtin"),
+                "count": 0,
+            }
+        index[src]["count"] += 1
+    return sorted(index.values(), key=lambda x: (x["category"], x["source"]))
+
+
+def delete_by_source(source_name: str) -> None:
+    """Delete all chunks whose metadata.source equals *source_name*."""
+    col = _get_collection()
+    col.delete(where={"source": source_name})
+
+
+def count_by_category() -> dict[str, int]:
+    """Return a mapping of category → chunk count."""
+    col = _get_collection()
+    if col.count() == 0:
+        return {}
+    results = col.get(include=["metadatas"])
+    counts: dict[str, int] = {}
+    for meta in results["metadatas"]:
+        cat = meta.get("category", "unknown")
+        counts[cat] = counts.get(cat, 0) + 1
+    return dict(sorted(counts.items()))

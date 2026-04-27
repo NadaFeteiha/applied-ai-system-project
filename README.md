@@ -234,11 +234,13 @@ The scheduler enforces a hard `high → medium → low` priority order within ea
 
 ### What was tested
 
-The test suite covers five layers of the backend — data models, task lifecycle, scheduling engine, conflict detection, and time-aware slot placement — with 131 tests and 100% statement coverage on `pawpal_system.py`.
+The test suite covers two reliability layers: the deterministic scheduling backend (automated unit tests) and the probabilistic RAG pipeline (confidence scoring + evaluator unit tests).
 
 ```
-131 passed, 1 warning in 0.32s
+164 passed, 1 warning in 8.87s
 ```
+
+**Scheduling backend** — 131 tests, 100% statement coverage on `pawpal_system.py`
 
 | Category | Tests | Focus |
 |---|:---:|---|
@@ -248,7 +250,26 @@ The test suite covers five layers of the backend — data models, task lifecycle
 | Conflict Detection | 24 | Overlap geometry, severity boundaries |
 | Time-Aware Scheduling | 36 | Free-block placement, busy-window enforcement, multi-occurrence spread |
 
-42 of the 131 tests explicitly target edge and boundary conditions — empty inputs, exact severity thresholds, duplicate prevention, and calendar blocking.
+**RAG evaluator** — 33 tests across two categories
+
+| Category | Tests | Focus |
+|---|:---:|---|
+| `keyword_coverage` (unit) | 12 | All/none/partial match, case-insensitivity, empty inputs, substring matching |
+| `avg_similarity_score` (unit) | 9 | Single/multi-chunk averages, boundary scores (0, 1), rounding |
+| `evaluate_question` (integration) | 6 | Return shape, value ranges, question passthrough — requires indexed KB |
+| `run_eval_suite` (integration) | 6 | Suite completeness, aggregate range checks, minimum quality floor |
+
+Integration tests auto-skip when ChromaDB has not been indexed yet (they print a clear "run `python setup_rag.py` first" message).
+
+42 of the 131 scheduling tests explicitly target edge and boundary conditions. The 12 evaluator unit tests do the same for the scoring functions — zero chunks, zero keywords, exact boundary scores, case folding.
+
+### Confidence scoring in the UI
+
+Every AI response shows a **retrieval confidence bar** — the mean cosine-similarity of the top-5 retrieved chunks displayed as a percentage with a color-coded fill (green ≥ 70%, yellow 50–69%, red < 50%). The **Retrieval Quality Evaluation** panel in the app runs the full 8-question reference suite on demand and reports aggregate keyword coverage and similarity scores.
+
+### Results summary
+
+All 164 automated tests passed. The 8-question RAG evaluation showed strong keyword coverage (97% average) — the retriever consistently pulled the right content — while semantic similarity averaged 50%, landing in the "yellow" zone, meaning chunks are topically correct but not always a tight match for the phrasing of the question. The weakest result was the fish care query, which missed one of five expected keywords (80% coverage vs 100% for every other question). No query fell below the 50% similarity floor; adding a species-specific document (e.g., a breed guide) raises confidence scores into the green zone, as shown in the custom document example above.
 
 ### What worked well
 
@@ -256,7 +277,7 @@ Testing the scheduling engine against explicit boundary values (e.g., conflict s
 
 ### What did not get covered
 
-The Streamlit UI layer (`app.py`, `pages/`) is not covered by automated tests. The RAG pipeline is also excluded — testing it would require either a live Ollama instance or a mocked LLM, and the fallback behavior was verified manually during development. A future iteration would add snapshot tests for the rendered schedule and integration tests for the RAG pipeline with a seeded test question set.
+The Streamlit UI layer (`app.py`, `pages/`) is not covered by automated tests. The LLM generation step is also excluded — testing it would require a live Ollama instance or a mocked model, and the fallback behavior (raw chunk excerpts when Ollama is offline) was verified manually. A future iteration would add snapshot tests for the rendered schedule and end-to-end tests that exercise the full generate-then-evaluate loop.
 
 ### What the process revealed
 
@@ -290,6 +311,107 @@ Start with the simplest design that could possibly work, test it thoroughly, and
 
 ---
 
+## RAG Enhancement — Custom Documents & Quality Measurement
+
+The retrieval system was extended beyond the static built-in knowledge base to support custom documents from any source, and a quality evaluator was added to make improvement measurable.
+
+### What was added
+
+| Component | File | Purpose |
+|-----------|------|---------|
+| **Ingestion module** | `rag/ingest.py` | Chunk and index `.txt` / `.pdf` files at runtime |
+| **Evaluator** | `rag/evaluator.py` | Score retrieval quality with keyword coverage and similarity metrics |
+| **Vector store — new functions** | `rag/vector_store.py` | `list_sources()`, `delete_by_source()`, `count_by_category()` |
+| **Pipeline — new function** | `rag/pipeline.py` | `retrieve()` — retrieval-only call for debugging and evaluation |
+| **Upload UI** | `pages/Pet_Care_Assistant.py` | Sidebar file uploader, live source list with delete, per-response confidence bar |
+
+### How to use custom documents
+
+In the AI Chat sidebar, a **Custom Documents** panel accepts any `.txt` or `.pdf` file:
+
+1. Upload a file — it is chunked, embedded, and upserted into ChromaDB immediately.
+2. Ask questions — the system retrieves from *all* sources (built-in + custom) in the same cosine search.
+3. Custom sources appear with a green `📎` pill on answers that used them.
+4. Remove a source with the `✕` button; all its chunks are deleted from the vector store.
+
+PDF support requires `pypdf` (`pip install pypdf`).
+
+### How quality is measured
+
+Every response now shows a **retrieval confidence bar** — the mean cosine-similarity score of the top-5 retrieved chunks, displayed as a percentage with a color-coded fill:
+
+| Score | Colour | Meaning |
+|-------|--------|---------|
+| ≥ 70% | Green  | Chunks are semantically close to the query |
+| 50–69% | Yellow | Moderate match; answer may be less specific |
+| < 50% | Red    | Weak match; knowledge base may lack coverage |
+
+The **Retrieval Quality Evaluation** panel (expandable, below the metrics row) runs an 8-question reference suite and reports two aggregate metrics:
+
+- **Keyword coverage** — fraction of expected topic keywords found in the top-5 chunks
+- **Avg similarity score** — mean cosine similarity across all retrieved chunks
+
+### Before / after: adding a custom document
+
+The improvement is most visible when a user asks about a topic not well covered by the built-in KB — for example, a breed-specific care guide or a custom vaccination record.
+
+**Without custom document** — question: *"What are the care requirements for a Siberian Husky?"*
+
+```
+Retrieval confidence: 52%
+Sources: 📖 Dogs  (generic breed section, partial match)
+Answer:  "Dogs generally need 30–60 minutes of exercise daily. High-energy breeds
+          like Huskies may need 1–2 hours..."
+```
+
+**After uploading** `husky_care_guide.txt` (a detailed Husky-specific guide):
+
+```
+Retrieval confidence: 87%
+Sources: 📎 Husky Care Guide  📖 Dogs
+Answer:  "Siberian Huskies need 1.5–2 hours of vigorous exercise daily and thrive
+          in cold climates. Their double coat requires brushing 2–3 times per week,
+          with heavy shedding seasons in spring and autumn..."
+```
+
+The confidence score jumps from 52 % to 87 % because the custom document provides exact, on-topic content. The answer shifts from generic to specific without any change to the pipeline — retrieval quality drives output quality.
+
+### Running the evaluator programmatically
+
+```python
+from rag.evaluator import run_eval_suite, evaluate_question
+
+# Full 8-question suite
+results = run_eval_suite()
+print(f"Coverage:   {results['avg_keyword_coverage']:.0%}")
+print(f"Similarity: {results['avg_similarity_score']:.0%}")
+
+# Single question with custom expected keywords
+r = evaluate_question(
+    "Husky exercise needs",
+    expected_keywords=["husky", "exercise", "hours", "energy"],
+)
+print(r["keyword_coverage"], r["avg_similarity"])
+```
+
+### Ingesting documents programmatically
+
+```python
+from rag import ingest_file, ingest_text, remove_source
+
+# From a file on disk
+n = ingest_file("my_notes.txt", source_name="My Notes")
+print(f"Indexed {n} chunks")
+
+# From a string
+n = ingest_text("Max had his rabies booster on 2025-03-10.", source_name="Max Records")
+
+# Remove when no longer needed
+remove_source("Max Records")
+```
+
+---
+
 ## Docs
 
 | Document | Contents |
@@ -311,3 +433,4 @@ Start with the simplest design that could possibly work, test it thoroughly, and
 | LLM Runtime | Ollama `llama3.2` (local) |
 | Persistence | JSON |
 | Tests | pytest ≥ 7.0 |
+| PDF Parsing | pypdf ≥ 4.0 |

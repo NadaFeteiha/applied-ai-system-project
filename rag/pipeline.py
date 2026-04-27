@@ -6,6 +6,16 @@ def is_index_populated() -> bool:
     return count() > 0
 
 
+def retrieve(question: str, n_chunks: int = 5) -> list[dict]:
+    """
+    Run only the retrieval step — embed the question and return the top-N chunks.
+
+    Each chunk dict has keys: text, metadata, score.
+    Useful for debugging retrieval quality and for the evaluator.
+    """
+    return query(question, n_results=n_chunks)
+
+
 def _build_prompt(question: str, chunks: list[dict], user_context: str) -> str:
     context_parts = []
     for i, chunk in enumerate(chunks, 1):

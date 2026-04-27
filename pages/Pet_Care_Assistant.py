@@ -96,8 +96,23 @@ html, body, [data-testid="stAppViewContainer"] { font-family: 'Inter', sans-seri
     display: inline-flex; align-items: center; gap: 4px;
     padding: 3px 11px; border-radius: 20px; font-size: 0.74em; font-weight: 600;
 }
-.src-pill-care { background: rgba(102,126,234,0.12); border: 1px solid rgba(102,126,234,0.3); color: #818cf8; }
-.src-pill-dr   { background: rgba(251,191,36,0.10);  border: 1px solid rgba(251,191,36,0.3);  color: #fbbf24; }
+.src-pill-care   { background: rgba(102,126,234,0.12); border: 1px solid rgba(102,126,234,0.3); color: #818cf8; }
+.src-pill-dr     { background: rgba(251,191,36,0.10);  border: 1px solid rgba(251,191,36,0.3);  color: #fbbf24; }
+.src-pill-custom { background: rgba(52,211,153,0.10);  border: 1px solid rgba(52,211,153,0.30); color: #34d399; }
+
+.confidence-bar-wrap {
+    display: flex; align-items: center; gap: 8px;
+    margin-top: 8px; padding-top: 8px;
+    border-top: 1px solid rgba(255,255,255,0.07);
+}
+.confidence-label { color: #6b7280; font-size: 0.74em; white-space: nowrap; }
+.confidence-bar {
+    flex: 1; height: 4px; border-radius: 2px;
+    background: rgba(255,255,255,0.08);
+    overflow: hidden;
+}
+.confidence-fill { height: 100%; border-radius: 2px; }
+.confidence-pct  { color: #9ca3af; font-size: 0.74em; white-space: nowrap; }
 
 /* ── Buttons ── */
 .stButton > button {
@@ -124,8 +139,10 @@ hr { border-color: rgba(102,126,234,0.18) !important; }
 # ── RAG imports ───────────────────────────────────────────────────────────────
 try:
     from rag import ask as rag_ask, is_index_populated
+    from rag import ingest_bytes, remove_source, list_sources, run_eval_suite
     from rag.llm import is_available as _llm_available
     from rag.vector_store import count as _kb_count
+    from rag.evaluator import avg_similarity_score
 
     _rag_ok = True
 except ImportError:
@@ -195,6 +212,74 @@ with st.sidebar:
     else:
         st.warning("RAG not installed")
 
+    if _rag_ok:
+        st.divider()
+        st.markdown(
+            '<div style="color:#a5b4fc;font-weight:700;font-size:0.8em;'
+            'letter-spacing:0.08em;margin-bottom:10px">📎 CUSTOM DOCUMENTS</div>',
+            unsafe_allow_html=True,
+        )
+        st.markdown(
+            '<div style="color:#6b7280;font-size:0.78em;margin-bottom:10px;line-height:1.5">'
+            'Upload .txt or .pdf files to extend the knowledge base. '
+            'Custom documents are retrieved alongside built-in guides.</div>',
+            unsafe_allow_html=True,
+        )
+
+        if "custom_indexed" not in st.session_state:
+            st.session_state.custom_indexed = set()
+
+        uploaded = st.file_uploader(
+            "Upload document",
+            type=["txt", "pdf"],
+            key="custom_doc_uploader",
+            label_visibility="collapsed",
+        )
+        if uploaded and uploaded.name not in st.session_state.custom_indexed:
+            with st.spinner(f"Indexing {uploaded.name}…"):
+                try:
+                    n = ingest_bytes(
+                        uploaded.read(),
+                        filename=uploaded.name,
+                    )
+                    st.session_state.custom_indexed.add(uploaded.name)
+                    st.success(f"Indexed {n} chunks from {uploaded.name}")
+                except Exception as exc:
+                    st.error(f"Failed to index: {exc}")
+
+        custom_sources = [
+            s for s in list_sources() if s.get("source_type") == "custom"
+        ]
+        if custom_sources:
+            st.markdown(
+                '<div style="color:#6b7280;font-size:0.78em;margin-bottom:6px">'
+                'Indexed custom sources:</div>',
+                unsafe_allow_html=True,
+            )
+            for src in custom_sources:
+                c1, c2 = st.columns([5, 1])
+                with c1:
+                    st.markdown(
+                        f'<div style="color:#34d399;font-size:0.82em;padding:3px 0">'
+                        f'📄 {src["source"]}'
+                        f'<span style="color:#6b7280"> · {src["count"]} chunks</span>'
+                        f'</div>',
+                        unsafe_allow_html=True,
+                    )
+                with c2:
+                    if st.button("✕", key=f"del_{src['source']}", help="Remove source"):
+                        remove_source(src["source"])
+                        st.session_state.custom_indexed.discard(
+                            src["source"].lower().replace(" ", "_") + ".txt"
+                        )
+                        st.rerun()
+        else:
+            st.markdown(
+                '<div style="color:#4b5563;font-size:0.78em;font-style:italic">'
+                'No custom documents yet.</div>',
+                unsafe_allow_html=True,
+            )
+
 # ── Hero banner ───────────────────────────────────────────────────────────────
 st.markdown(
     """
@@ -216,6 +301,60 @@ with m3:
     st.metric("Knowledge Chunks", str(_doc_count if _rag_ok else 0), delta="indexed")
 with m4:
     st.metric("LLM Engine", "llama3.2", delta="via Ollama")
+
+st.divider()
+
+# ── Retrieval quality panel ───────────────────────────────────────────────────
+if _rag_ok:
+    with st.expander("🔎 Retrieval Quality Evaluation", expanded=False):
+        st.markdown(
+            "Run the built-in evaluation suite to measure how well the knowledge base "
+            "retrieves relevant content. **Keyword coverage** checks whether expected "
+            "terms appear in the top-5 chunks. **Similarity score** is the mean cosine "
+            "similarity of those chunks to the query."
+        )
+
+        _cat_counts = {}
+        try:
+            from rag.vector_store import count_by_category as _count_by_cat
+            _cat_counts = _count_by_cat()
+        except Exception:
+            pass
+
+        if _cat_counts:
+            _cc1, _cc2, _cc3 = st.columns(3)
+            _cc1.metric("pet_care chunks",  _cat_counts.get("pet_care", 0))
+            _cc2.metric("doctors chunks",   _cat_counts.get("doctors", 0))
+            _cc3.metric("custom chunks",    _cat_counts.get("custom", 0))
+
+        if st.button("▶ Run Evaluation Suite (8 questions)", key="run_eval"):
+            with st.spinner("Evaluating retrieval across 8 reference questions…"):
+                _eval = run_eval_suite()
+
+            _e1, _e2 = st.columns(2)
+            _e1.metric(
+                "Avg Keyword Coverage",
+                f"{_eval['avg_keyword_coverage']:.0%}",
+                help="Fraction of expected topic keywords found in retrieved chunks",
+            )
+            _e2.metric(
+                "Avg Similarity Score",
+                f"{_eval['avg_similarity_score']:.0%}",
+                help="Mean cosine similarity between query and retrieved chunks",
+            )
+
+            st.markdown("**Per-question results:**")
+            for _r in _eval["per_question"]:
+                _cov = _r["keyword_coverage"]
+                _sim = _r["avg_similarity"]
+                _cov_color = "🟢" if _cov >= 0.7 else "🟡" if _cov >= 0.4 else "🔴"
+                _sources_str = ", ".join(_r["sources"]) if _r["sources"] else "—"
+                st.markdown(
+                    f"**{_r['question']}**  \n"
+                    f"{_cov_color} Coverage: `{_cov:.0%}` &nbsp;|&nbsp; "
+                    f"Similarity: `{_sim:.0%}` &nbsp;|&nbsp; "
+                    f"Sources: *{_sources_str}*"
+                )
 
 st.divider()
 
@@ -250,15 +389,38 @@ def _user_context(owner_name: str | None) -> str:
 def _source_pills(sources: list) -> str:
     seen, pills = set(), []
     for src in sources:
-        name = src["metadata"].get("source", "unknown")
-        cat = src["metadata"].get("category", "")
+        meta = src["metadata"]
+        name = meta.get("source", "unknown")
+        cat = meta.get("category", "")
+        src_type = meta.get("source_type", "builtin")
         if name in seen:
             continue
         seen.add(name)
-        cls = "src-pill-dr" if cat == "doctors" else "src-pill-care"
-        icon = "🩺" if cat == "doctors" else "📖"
+        if cat == "doctors":
+            cls, icon = "src-pill-dr", "🩺"
+        elif src_type == "custom":
+            cls, icon = "src-pill-custom", "📎"
+        else:
+            cls, icon = "src-pill-care", "📖"
         pills.append(f'<span class="src-pill {cls}">{icon} {name}</span>')
     return f'<div class="src-pills-row">{"".join(pills)}</div>' if pills else ""
+
+
+def _confidence_bar(sources: list) -> str:
+    if not sources:
+        return ""
+    score = avg_similarity_score(sources)
+    pct = int(score * 100)
+    color = "#34d399" if score >= 0.70 else "#fbbf24" if score >= 0.50 else "#f87171"
+    return (
+        '<div class="confidence-bar-wrap">'
+        '<span class="confidence-label">Retrieval confidence</span>'
+        '<div class="confidence-bar">'
+        f'<div class="confidence-fill" style="width:{pct}%;background:{color}"></div>'
+        '</div>'
+        f'<span class="confidence-pct">{pct}%</span>'
+        '</div>'
+    )
 
 
 # ── Quick-question pills ──────────────────────────────────────────────────────
@@ -314,6 +476,7 @@ for _msg in st.session_state.chat_history:
         st.markdown(_msg["content"])
         if _msg["role"] == "assistant" and _msg.get("sources"):
             st.markdown(_source_pills(_msg["sources"]), unsafe_allow_html=True)
+            st.markdown(_confidence_bar(_msg["sources"]), unsafe_allow_html=True)
 
 # ── Handle new question ───────────────────────────────────────────────────────
 _pending = st.session_state.pop("_pending_question", None)
@@ -334,6 +497,7 @@ if _question:
             st.caption("⚠️ Ollama is offline — showing retrieved knowledge base excerpts.")
         if _result.get("sources"):
             st.markdown(_source_pills(_result["sources"]), unsafe_allow_html=True)
+            st.markdown(_confidence_bar(_result["sources"]), unsafe_allow_html=True)
 
     st.session_state.chat_history.append({
         "role": "assistant",
