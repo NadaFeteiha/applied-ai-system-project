@@ -311,6 +311,36 @@ Start with the simplest design that could possibly work, test it thoroughly, and
 
 ---
 
+## Critical Reflection
+
+### Limitations and biases
+
+The knowledge base is hand-curated and small — 11 documents covering five species and six vets. Any pet not in that set (reptiles, guinea pigs, senior dogs with chronic conditions) will get a generic or irrelevant answer, and the system currently has no way to signal that a question is outside its coverage. The vet profiles are also fictional, so availability and fee data is static and never goes stale, but it also means the booking information cannot be acted on.
+
+On the bias side, the retriever uses cosine similarity on short queries, which favors questions phrased similarly to the training documents. A user who asks "my cat keeps throwing up" may get lower-confidence results than one who asks "what causes vomiting in cats," even though the intent is the same. The scoring also weights semantic closeness, not medical correctness — a confident-looking 80% score does not mean the answer is safe to act on without a real vet.
+
+### Misuse risks and safeguards
+
+The most realistic misuse is over-reliance: an owner treating an AI answer as a substitute for professional veterinary advice. A second risk is prompt injection through custom documents — a malicious upload could embed instructions designed to hijack the LLM's response.
+
+Safeguards already in place: source pills on every answer make it clear where information came from; the fallback mode shows raw chunks rather than a confident-sounding generated sentence when the LLM is offline; and the custom document upload is type-restricted to `.txt` and `.pdf`. What is not yet in place: a disclaimer on health-related answers, rate limiting on document uploads, and sanitization of uploaded text before it enters the prompt.
+
+### What surprised me during reliability testing
+
+The keyword coverage metric (97% average) looked excellent, but the similarity scores (50% average) told a different story — the retriever was finding the right documents but not always the most on-point passages within them. I expected those two numbers to move together. The surprise was that coverage can be high while similarity is only moderate: the keyword is present somewhere in the top-5 chunks, but the chunk that contains it may have been retrieved for a different reason. That gap is what a re-ranking step would fix, and I would not have noticed it without running both metrics side by side.
+
+The fish care question was the only one to miss a keyword (80% coverage). Looking at the retrieved chunks, the word "aquarium" was present but "filter" was not — the knowledge base document uses "filtration system" instead. That single synonym mismatch was enough to drop the score, which is a good reminder that keyword matching punishes vocabulary gaps even when the underlying information is there.
+
+### Collaboration with AI during this project
+
+AI assistance was used throughout — for scaffolding the RAG pipeline, writing the test suite, and drafting documentation.
+
+**Helpful instance:** When setting up the vector store, the AI suggested adding a 30-word chunk overlap on top of the 200-word chunk size. The reasoning was that sentences at chunk boundaries would otherwise be split across two chunks and potentially missed by both. That turned out to matter in practice: the vet profile questions, which often straddle an availability line and a fee line, consistently retrieved both pieces of information because the overlap kept boundary content in two chunks.
+
+**Flawed instance:** The AI initially proposed testing `keyword_coverage` with the assertion that `"vaccine"` would be found as a substring of `"vaccination"`. The test was written, committed, and only caught when it failed — `"vaccine"` and `"vaccination"` diverge at the seventh character and are not a substring match. The fix was a one-line change, but it was a reminder that AI-generated tests can encode confident-sounding assumptions that are simply wrong and need the same skeptical review as any other generated code.
+
+---
+
 ## RAG Enhancement — Custom Documents & Quality Measurement
 
 The retrieval system was extended beyond the static built-in knowledge base to support custom documents from any source, and a quality evaluator was added to make improvement measurable.
